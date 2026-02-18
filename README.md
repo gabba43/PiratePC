@@ -32,7 +32,7 @@ I'm running all of this on a hacked €25 TV box (T25MAX, 4gb RAM, 32gb eMMC, H6
 
 # IMPORTANT
 
-###Dependencies
+## Dependencies
 Before compiling, building or running anything, install the necessary dependencies by running the following command (Debian/Ubuntu based systems):
 
 ```bash
@@ -40,22 +40,23 @@ sudo apt update
 sudo apt install ffmpeg libsndfile1-dev libasound2-dev libsamplerate0-dev libao-dev tmux
 ```
 
-###Building & compiling mpxgen (commit 397e81e for audio input to work)
+## Building & compiling mpxgen (commit 397e81e for audio input to work)
 
 ```bash
 git clone https://github.com/Anthony96922/mpxgen
 git checkout 397e81e
 ```
+### EDIT: SIMPLY REPLACE THE 'control_pipe.c' by the file supplied in my Github.
 
 For the dynamic RDS to work, there are some changes to the source code of mpxgen necessary.
-You need to change one single line in mpxgen's source code:
+You need to change one single line in mpxgen's source code (file 'control_pipe.c'):
 
 ```bash
 cd ~/mpxgen/src
 nano control_pipe.c
 ```
 
-Change lines from:
+Change lines 62-63 (in the commit 397e81e) from:
 
 ```c
 char *res = fgets(buf, CTL_BUFFER_SIZE, f_ctl);
@@ -82,7 +83,7 @@ make
 The `clearerr()` resets the error flag so that the next `fgets()` call actually reads from the kernel pipe buffer again. A one-liner fix for a persistent problem. After that, **both** the `exec 3>` approach **and** the simpler `echo > pipe` work because mpxgen clears the error state after each failed read and reads correctly again on the next pass (10 ms later).
 
 
-###Adding .libao and .asoundrc to your home folder
+## Adding .libao and .asoundrc to your home folder
 
 To make mpxgen work, add the libao & asoundrc to your home folder. Also, add a "." in front of their file names to change visibility and make the system recognize them. Additionally, you need to specifiy the name of your sound card in the .asoundrc using either the format "hw:1,0" OR it's specific name, e.g. "hw:audiocodec", which can be obtained by running:
 ```bash
@@ -98,5 +99,5 @@ You can obtain the correct name by running the command above.
 
 
 
-#PROFIT!
+# PROFIT!
 If you encounter any bugs, drop me a message. Thanks.
