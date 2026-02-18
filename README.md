@@ -25,7 +25,10 @@ A fully automated stream/music player, sound processor, web stream & MPX generat
 
 And all this on a hacked €25 TV box (T25MAX) running Armbian (Debian) flashed to it's eMMC.
 
-#IMPORTANT
+
+
+
+# IMPORTANT
 
 Building & compiling mpxgen (commit 397e81e for audio input to work)
 
