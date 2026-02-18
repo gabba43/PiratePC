@@ -26,7 +26,7 @@ CLI only - running in a Tmux terminal via SSH or locally.
 - using a custom ALSA plug called "mpxmix" instead of streaming directly to the sound card, if desired
 - full logging
 
-I'm running all of this on a hacked €25 TV box (T25MAX, 4gb RAM, 32gb eMMC, H618 CPU - 4x1.4GHz Cortex A53, average CPU load 30-40%) running Armbian Desktop (Debian) flashed to it's eMMC (not logged in, only SSH which is closed after starting the script/tmux terminal).
+I'm running all of this on a hacked €25 TV box (T25MAX, 4gb RAM, 32gb eMMC, H618 CPU - 4x1.4GHz Cortex A53, average CPU load 30-40%) running Armbian Desktop (Debian) flashed to it's eMMC (not logged in to the desktop environment, only SSH which is closed after starting the script/tmux terminal).
 
 
 
@@ -115,7 +115,7 @@ nano PiratePC_v1.5_ffmpeg.sh
 ```
 
 
-## Stopping the script, restarting, disconnecting from and reconnecting to the Tmux terminal running the script.
+## Stopping the script, restarting, disconnecting from and reconnecting to the Tmux terminal running the script
 To stop the script, press 'Ctrl+C'  
 
 To restart the script, simply press 'x'  
