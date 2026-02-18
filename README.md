@@ -1,17 +1,18 @@
 # PiratePC
-A fully automated stream/music player, sound processor, web stream & MPX generator for radio purposes - using ONLY FFmpeg and mpxgen.
+A fully automated stream/music player, sound processor, web stream & MPX generator for radio purposes - using ONLY FFmpeg and mpxgen.  
+CLI only - running in a Tmux terminal via SSH or locally.
 
-I'll soon add an installation script that does all the work below automatically on Debian/Ubuntu based systems.
+**I'll soon add an installation script that does all the work below automatically on Debian/Ubuntu based systems.**
 
  Features:
 - Tmux terminal that runs in the background so that the SSH connection can be closed (reconnecting to the terminal possible)
-- Restart the script/try to reconnect to the web stream by pressing "x"
 - Tries to connect to a web stream: If successful, the stream is processed if desired and multiplexed (5 connection attempts with a 3 second break inbetween)
-- 4 modes:
-    “webstream”           = Webstream capture + FFmpeg fallback (default)
-    “auto”                = FFmpeg fallback only (full auto mode)
-    “soundcard”           = Capture sound card only (ALSA)
-    “soundcard+fallback”  = Capture sound card (ALSA) + FFmpeg fallback
+- Restart the script/try to reconnect to the web stream by pressing "x"
+- 4 modes:  
+    “webstream”           = Webstream capture + FFmpeg fallback (default)  
+    “auto”                = FFmpeg fallback only (full auto mode)  
+    “soundcard”           = Capture sound card only (ALSA)  
+    “soundcard+fallback”  = Capture sound card (ALSA) + FFmpeg fallback  
 
 - Custom fallback audio player using ONLY FFmpeg: Automatic creation of playlists using a specified folder containing audio files AND/OR .m3u/.m3u8 files, streaming the signal to an Icecast server
 - Playback of jingles in a separate folder every X songs with a shorter, customizable crossfade
@@ -98,6 +99,35 @@ You can obtain the correct name by running the command above.
 
 
 
+## Making the script executable
+```bash
+chmod +x ./PiratePC_v1.5_ffmpeg.sh
+./PiratePC_v1.5_ffmpeg.sh
+```
 
-# PROFIT!
+
+## Changing settings
+
+All of the important settings - except for the sound processing chain - are located at the beginning of the script.
+
+```bash
+nano PiratePC_v1.5_ffmpeg.sh
+```
+
+
+## Stopping the script, restarting, disconnecting from and reconnecting to the Tmux terminal running the script.
+To stop the script, press 'Ctrl+C'  
+
+To restart the script, simply press 'x'  
+
+To disconnect, simply close the SSH connection - I'm using Putty, just close the window.  
+
+To reconnect, connect again via SSH and run the following command:  
+```bash
+tmux attach -t radio
+```
+
+
+
+## PROFIT!
 If you encounter any bugs, drop me a message. Thanks.
