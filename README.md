@@ -36,3 +36,34 @@ git clone https://github.com/Anthony96922/mpxgen
 git checkout 397e81e
 
 For the dynamic RDS to work, there are some changes to the source code of mpxgen necessary.
+You need to change one single line in mpxgen's source code:
+
+```bash
+cd ~/mpxgen/src
+nano control_pipe.c
+```
+
+Change lines from:
+
+```c
+char *res = fgets(buf, CTL_BUFFER_SIZE, f_ctl);
+if (res == NULL) return -1;
+```
+
+to:
+
+```c
+char *res = fgets(buf, CTL_BUFFER_SIZE, f_ctl);
+if (res == NULL) {
+    clearerr(f_ctl);
+    return -1;
+}
+```
+
+Recompile:
+
+```bash
+make clean
+make
+
+The `clearerr()` resets the error flag so that the next `fgets()` call actually reads from the kernel pipe buffer again. A one-liner fix for a persistent problem. After that, **both** the `exec 3>` approach **and** the simpler `echo > pipe` work because mpxgen clears the error state after each failed read and reads correctly again on the next pass (10 ms later).
