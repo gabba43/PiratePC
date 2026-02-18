@@ -17,7 +17,7 @@ CLI only - running in a Tmux terminal via SSH or locally.
 - Custom fallback audio player using ONLY FFmpeg: Automatic creation of playlists using a specified folder containing audio files AND/OR .m3u/.m3u8 files, streaming the signal to an Icecast server
 - Playback of jingles in a separate folder every X songs with a shorter, customizable crossfade
 - Separate volume settings for stream and MPX
-- Basic sound processing with all standard features (EQ, crystallizer, stereo widening, compressor, AGC, limiter)
+- Basic sound processing with all standard features which can adjusted or disabled (EQ, crystallizer, stereo widening, compressor, AGC, limiter)
 - Streaming to an Icecast server (can be disabled)
 - 192kHz VBR MP3 & OGG as streaming formats (can be adjusted)
 - MPX generation
@@ -124,7 +124,7 @@ To disconnect, simply close the SSH connection - I'm using Putty, just close the
 
 To reconnect, connect again via SSH and run the following command:  
 ```bash
-tmux attach -t radio
+tmux a -t radio
 ```
 
 
