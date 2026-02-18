@@ -30,10 +30,19 @@ And all this on a hacked €25 TV box (T25MAX) running Armbian (Debian) flashed 
 
 # IMPORTANT
 
+Before running and installing anything, install the necessary dependencies by running the following command:
+
+```bash
+sudo apt update
+sudo apt install ffmpeg libsndfile1-dev libasound2-dev libsamplerate0-dev libao-dev mpv mpd tmux
+```
+
 Building & compiling mpxgen (commit 397e81e for audio input to work)
 
+```bash
 git clone https://github.com/Anthony96922/mpxgen
 git checkout 397e81e
+```
 
 For the dynamic RDS to work, there are some changes to the source code of mpxgen necessary.
 You need to change one single line in mpxgen's source code:
@@ -65,5 +74,15 @@ Recompile:
 ```bash
 make clean
 make
+```
 
 The `clearerr()` resets the error flag so that the next `fgets()` call actually reads from the kernel pipe buffer again. A one-liner fix for a persistent problem. After that, **both** the `exec 3>` approach **and** the simpler `echo > pipe` work because mpxgen clears the error state after each failed read and reads correctly again on the next pass (10 ms later).
+
+
+Adding .libao and .asoundrc to your home folder
+
+To make mpxgen work, add the libao & asoundrc to your home folder. Also, add a "." in front of their file names to change visibility and make the system recognize them. Additionally, you need to specifiy the name of your sound card in the .asoundrc using either the format "hw:1,0" OR it's specific name which can be obtained by running:
+```bash
+aplay -l
+```
+In this case, mpxgen uses an ALSA plug device called "mpxmix". If you wish to directly write to your 192kHz sound card, change the .libao-file to the name of your sound card. You can obtain the correct name by running the command above.
