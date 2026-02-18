@@ -3,6 +3,7 @@ A fully automated stream/music player, sound processor, web stream & MPX generat
 CLI only - running in a Tmux terminal via SSH or locally.
 
 **I'll soon add an installation script that does all the work below automatically on Debian/Ubuntu based systems.**
+For a more sophisticated sound processing, check this project or use LADSPA plugins in FFmpeg: https://github.com/radiopushka/VostokRadio
 
  Features:
 - Tmux terminal that runs in the background so that the SSH connection can be closed (reconnecting to the terminal possible)
