@@ -43,6 +43,9 @@ fi
 # KONFIGURATION
 # ==============================================================================
 
+# Dezimaltrenner auf Punkt erzwingen (deutsches Locale nutzt Komma!)
+export LC_ALL=C
+
 CURRENT_USER=$(whoami)
 SCRIPT_PATH=$(realpath "$0")
 SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
@@ -109,7 +112,7 @@ STREAM_URL="http://192.168.111.11:8000/stream"
 # ==============================================================================
 # RDS KONFIGURATION
 # ==============================================================================
-STATIC_RT="E-Mails to radio@iskra.com"
+STATIC_RT="E-Mails to studio@iskra.com"
 STATIC_PS="ISKRA"
 STATIC_PI="FFFF"
 STATIC_PTY="10"
@@ -133,17 +136,24 @@ MPX_LEVEL=50
 # Beispiel: 3 = Nach jedem 3. Song wird ein Jingle eingespielt.
 # Auf 0 setzen um Jingles komplett zu deaktivieren.
 # ==============================================================================
-JINGLE_INTERVAL=1
+JINGLE_INTERVAL=3
 
 # ==============================================================================
 # CROSSFADE / OVERLAP (in Sekunden)
 # ==============================================================================
 OV_STANDARD=8       # Song → Song
-OV_TO_JINGLE=3      # Song → Jingle
+OV_TO_JINGLE=2      # Song → Jingle
 OV_FROM_JINGLE=1    # Jingle → Song
 
-# Silence Remove Filter
-FILT_SILENCE="silenceremove=stop_periods=1:stop_duration=0.5:stop_threshold=-35dB"
+# ==============================================================================
+# SILENCE DETECTION: Erkennt Stille am Trackende → Crossfade startet früher
+# ==============================================================================
+# "yes" = Scannt Ende jedes Tracks. Bei Stille: Crossfade-Punkt vorverlegen.
+# "no"  = Immer am berechneten Punkt (DUR - TAIL_LEN) schneiden.
+# ==============================================================================
+SILENCE_DETECT="yes"
+SILENCE_THRESHOLD=-33     # dB — ab wann gilt Audio als "Stille"
+SILENCE_DURATION=1.0      # Sekunden — wie lang muss Stille sein
 
 # Icecast URL
 if [ "$STREAM_FORMAT" = "ogg" ]; then
@@ -292,15 +302,80 @@ get_duration() {
 # ==============================================================================
 # stdout = PCM-Daten → FIFO. Alle Logs gehen auf stderr (&2)!
 #
-# CROSSFADE-LOGIK:
-# Der Tail des vorherigen Tracks kann LÄNGER sein als der aktuelle Overlap.
-# (z.B. Song-Tail=8s, aber Overlap zum Jingle=3s)
+# CROSSFADE-LOGIK (v3 - Single-Call + head):
+# Problem: Separate ffmpeg-Aufrufe für Solo/Mix/Body erzeugen Lücken
+# und -ss auf raw PCM ist unzuverlässig bei Fließkomma-Werten.
 #
-# Deshalb wird der Tail in zwei Teile aufgeteilt:
-#   1. SOLO-Teil: Die überschüssigen Sekunden (8-3=5s) werden solo ausgegeben
-#   2. MIX-Teil:  Die letzten OVERLAP Sekunden werden mit dem neuen Track gemischt
+# Lösung:
+#   1. SOLO: Überschüssiger Tail via "head -c" (instant, null Latenz)
+#   2. MIX+BODY: Ein einziger ffmpeg-Aufruf mit filter_complex + concat:
+#      - atrim statt -ss (zuverlässiger auf raw PCM)
+#      - Crossfade-Mix und Body-Sektion per concat verkettet
+#      → Kein Prozess-Gap zwischen Mix und Body
+#   3. TAIL: Separat extrahiert (ohne silenceremove)
 #
-# Danach folgt der Body des neuen Tracks (ab OVERLAP bis TAIL_START).
+# Bytes-pro-Sekunde: RATE_INTERNAL * CHANNELS * 2 (16-bit)
+# ==============================================================================
+
+# ==============================================================================
+# SILENCE DETECTION FUNKTION
+# ==============================================================================
+# Scannt die letzten 30s eines Tracks auf Stille.
+# Gibt die "effektive Dauer" zurück (= wo letzte Stille beginnt).
+# Ohne Stille → gibt volle Dauer zurück.
+# ==============================================================================
+
+detect_effective_end() {
+    local FILE="$1"
+    local DUR="$2"
+
+    if [ "$SILENCE_DETECT" != "yes" ]; then
+        echo "$DUR"
+        return
+    fi
+
+    local SCAN_LEN=30
+    local SCAN_START
+    SCAN_START=$(echo "$DUR - $SCAN_LEN" | bc -l)
+    if [ "$(echo "$SCAN_START < 0" | bc -l)" -eq 1 ]; then
+        SCAN_START="0"
+    fi
+
+    # silencedetect braucht info-Level für die Ausgabe
+    local SILENCE_START
+    SILENCE_START=$(ffmpeg -hide_banner -v info -ss "$SCAN_START" -i "$FILE" \
+        -af "silencedetect=noise=${SILENCE_THRESHOLD}dB:d=${SILENCE_DURATION}" \
+        -f null - 2>&1 | grep "silence_start" | tail -1 | sed -n 's/.*silence_start: *\([0-9.]*\).*/\1/p')
+
+    if [ ! -z "$SILENCE_START" ] && [ "$(echo "$SILENCE_START > 0" | bc -l)" -eq 1 ]; then
+        # silence_start ist relativ zu SCAN_START
+        local ABS_SILENCE
+        ABS_SILENCE=$(echo "$SCAN_START + $SILENCE_START" | bc -l)
+        echo "$ABS_SILENCE"
+    else
+        echo "$DUR"
+    fi
+}
+
+# ==============================================================================
+# RADIO-ENGINE (reines FFmpeg, Crossfade v4)
+# ==============================================================================
+# stdout = PCM-Daten → FIFO. Alle Logs gehen auf stderr (&2)!
+#
+# Crossfade-Ablauf pro Track mit Vorgänger-Tail:
+#
+#   PREV_TAIL (z.B. 8s PCM):
+#   [========= SOLO (head -c) =========][==== OVERLAP ====]
+#                                         ↕ MIX (afade out)
+#   NEUER TRACK:                         [==== OVERLAP ====][======= BODY =======][= TAIL =]
+#                                         ↕ MIX (afade in)
+#
+#   Ausgabe: SOLO → MIX+BODY (ein ffmpeg-Aufruf, concat) → [Tail wird gespeichert]
+#
+# Fixes v4:
+#   - Tail-Extraktion mit -t (exakte Länge, unabhängig von Silence Detection)
+#   - atrim mit explizitem end-Punkt (kein Überlauf)
+#   - Silence Detection verschiebt Crossfade-Punkt vor Stille
 # ==============================================================================
 
 run_radio() {
@@ -312,19 +387,23 @@ run_radio() {
     local SONG_COUNTER=0
     local TAIL_SLOT="a"
 
-    elog "Radio-Engine gestartet (FFmpeg Pure)"
+    # Bytes pro Sekunde (s16le stereo)
+    local BPS=$(( RATE_INTERNAL * CHANNELS * 2 ))
+
+    elog "Radio-Engine gestartet (Crossfade v4)"
     if [ "$JINGLE_INTERVAL" -gt 0 ]; then
         elog "Jingle-Interval: alle $JINGLE_INTERVAL Songs"
     else
         elog "Jingles deaktiviert"
     fi
+    elog "Silence-Detect: $SILENCE_DETECT (${SILENCE_THRESHOLD}dB, ${SILENCE_DURATION}s)"
 
     while true; do
 
         local NEXT_TYPE="SONG"
         local CURRENT_FILE=""
 
-        # Jingle einspielen? (nur wenn JINGLE_INTERVAL > 0)
+        # Jingle einspielen?
         if [ "$JINGLE_INTERVAL" -gt 0 ] && \
            [ "$PREV_TYPE" == "SONG" ] && \
            [ $((SONG_COUNTER % JINGLE_INTERVAL)) -eq 0 ] && \
@@ -360,7 +439,7 @@ run_radio() {
             continue
         fi
 
-        # --- Overlap bestimmen (wie viel vom VORHERIGEN Tail überlappt) ---
+        # --- Overlap ---
         local OVERLAP=0
         if [ -z "$PREV_TYPE" ]; then
             OVERLAP=0
@@ -382,16 +461,25 @@ run_radio() {
             TAIL_LEN=$OV_FROM_JINGLE
         fi
 
+        # --- Effektive Dauer (Silence Detection) ---
+        local EFFECTIVE_END
+        EFFECTIVE_END=$(detect_effective_end "$CURRENT_FILE" "$DUR")
+
         local TAIL_START
-        TAIL_START=$(echo "$DUR - $TAIL_LEN" | bc -l)
+        TAIL_START=$(echo "$EFFECTIVE_END - $TAIL_LEN" | bc -l)
+
+        if [ "$SILENCE_DETECT" = "yes" ] && [ "$(echo "$EFFECTIVE_END < $DUR" | bc -l)" -eq 1 ]; then
+            local TRIMMED
+            TRIMMED=$(echo "$DUR - $EFFECTIVE_END" | bc -l)
+            elog "Silence: ${TRIMMED}s am Ende, Crossfade ${TRIMMED}s frueher"
+        fi
 
         # Track zu kurz?
         local MIN_LEN
         MIN_LEN=$(echo "$OVERLAP + $TAIL_LEN + 1" | bc -l)
-        if [ "$(echo "$DUR < $MIN_LEN" | bc -l)" -eq 1 ]; then
-            elog "Track zu kurz ($(printf '%.0f' "$DUR")s) - spiele komplett"
+        if [ "$(echo "$EFFECTIVE_END < $MIN_LEN" | bc -l)" -eq 1 ]; then
+            elog "Track zu kurz (${DUR%%.*}s) - spiele komplett"
             ffmpeg -v error -i "$CURRENT_FILE" \
-                -af "$FILT_SILENCE" \
                 -f s16le -ac $CHANNELS -ar $RATE_INTERNAL - 2>/dev/null
             if [ -n "$PREV_TAIL" ] && [ -f "$PREV_TAIL" ]; then rm -f "$PREV_TAIL"; fi
             PREV_TAIL=""
@@ -399,7 +487,7 @@ run_radio() {
             continue
         fi
 
-        # --- Tail-Datei: Alternating A/B Slots ---
+        # --- Tail-Datei: A/B Slots ---
         local TAIL_FILE
         if [ "$TAIL_SLOT" = "a" ]; then
             TAIL_FILE="$WORKDIR/tails/tail_a.pcm"
@@ -414,83 +502,76 @@ run_radio() {
         # ==============================================================
 
         if [ -z "$PREV_TAIL" ] || [ ! -f "$PREV_TAIL" ]; then
-            # ---- ERSTER TRACK: Kein Vorgänger ----
+            # ─── ERSTER TRACK (kein Vorgänger) ───
+            elog "Erster Track: Body ${TAIL_START}s"
             ffmpeg -v error -i "$CURRENT_FILE" \
                 -t "$TAIL_START" \
-                -af "$FILT_SILENCE" \
                 -f s16le -ac $CHANNELS -ar $RATE_INTERNAL - 2>/dev/null
         else
-            # ---- CROSSFADE / MIX mit Vorgänger-Tail ----
+            # ─── CROSSFADE mit Vorgänger-Tail ───
 
-            # Tatsächliche Tail-Länge ermitteln (in Sekunden)
+            # Tatsächliche Tail-Länge (Bytes → Sekunden)
             local PREV_BYTES
             PREV_BYTES=$(stat -c%s "$PREV_TAIL" 2>/dev/null || echo "0")
             local PREV_TAIL_SECS
-            PREV_TAIL_SECS=$(echo "scale=3; $PREV_BYTES / ($RATE_INTERNAL * $CHANNELS * 2)" | bc -l)
+            PREV_TAIL_SECS=$(echo "scale=3; $PREV_BYTES / $BPS" | bc -l)
 
-            # Wie viele Sekunden vom Tail SOLO spielen (vor dem Mix)?
-            # Beispiel: Tail=8s, Overlap=3s → Solo=5s, dann 3s Mix
+            # Solo = Tail - Overlap
             local TAIL_SOLO
             TAIL_SOLO=$(echo "scale=3; $PREV_TAIL_SECS - $OVERLAP" | bc -l)
 
-            # 1) SOLO-TEIL: Überschüssige Tail-Sekunden ausgeben
-            if [ "$(echo "$TAIL_SOLO > 0.05" | bc -l)" -eq 1 ]; then
-                elog "TAIL-SOLO: ${TAIL_SOLO}s (von ${PREV_TAIL_SECS}s Tail)"
-                ffmpeg -v error \
-                    -f s16le -ac $CHANNELS -ar $RATE_INTERNAL -i "$PREV_TAIL" \
-                    -t "$TAIL_SOLO" \
-                    -f s16le -ac $CHANNELS -ar $RATE_INTERNAL - 2>/dev/null
+            # ── SCHRITT 1: SOLO via head -c (instant, null Latenz) ──
+            if [ "$(echo "$TAIL_SOLO > 0.01" | bc -l)" -eq 1 ]; then
+                local SOLO_BYTES
+                # Auf Frame-Grenze runden (4 Bytes = 1 Stereo-Sample @ 16bit)
+                SOLO_BYTES=$(echo "$TAIL_SOLO * $BPS / 4 * 4" | bc | cut -d. -f1)
+                elog "SOLO: ${TAIL_SOLO}s (${SOLO_BYTES}B)"
+                head -c "$SOLO_BYTES" "$PREV_TAIL"
             fi
 
-            # 2) MIX-TEIL: Letzte OVERLAP Sekunden des Tails + Anfang neuer Track
-            local FILTER=""
-            if [ "$PREV_TYPE" == "SONG" ] && [ "$NEXT_TYPE" == "JINGLE" ]; then
-                FILTER="[0:a][1:a]amix=inputs=2:duration=longest[out]"
-                elog "MIX: Hard-Mix ${OVERLAP}s ($PREV_TYPE → $NEXT_TYPE)"
-            else
-                FILTER="[0:a]afade=t=out:st=0:d=$OVERLAP[old];[1:a]afade=t=in:st=0:d=$OVERLAP[new];[old][new]amix=inputs=2:duration=longest[out]"
-                elog "MIX: Crossfade ${OVERLAP}s ($PREV_TYPE → $NEXT_TYPE)"
+            # ── SCHRITT 2: MIX + BODY in einem ffmpeg-Aufruf ──
+            # atrim mit explizitem start UND end → exakte Grenzen, kein Überlauf
+            local TAIL_SKIP="0"
+            if [ "$(echo "$TAIL_SOLO > 0.01" | bc -l)" -eq 1 ]; then
+                TAIL_SKIP="$TAIL_SOLO"
             fi
 
-            # -ss auf dem raw PCM-Input: Springt TAIL_SOLO Sekunden rein
-            # Damit wird nur der Overlap-Bereich des Tails als Input verwendet
-            local TAIL_SS="0"
-            if [ "$(echo "$TAIL_SOLO > 0.05" | bc -l)" -eq 1 ]; then
-                TAIL_SS="$TAIL_SOLO"
-            fi
+            # Exakter Endpunkt für den Tail-Trim (TAIL_SKIP + OVERLAP)
+            local TAIL_TRIM_END
+            TAIL_TRIM_END=$(echo "$TAIL_SKIP + $OVERLAP" | bc -l)
+
+            elog "MIX: ${OVERLAP}s ($PREV_TYPE→$NEXT_TYPE) Tail=[${TAIL_SKIP}..${TAIL_TRIM_END}]s Body=[${OVERLAP}..${TAIL_START}]s"
 
             ffmpeg -v error \
-                -f s16le -ac $CHANNELS -ar $RATE_INTERNAL -ss "$TAIL_SS" -i "$PREV_TAIL" \
-                -ss 0 -t "$OVERLAP" -i "$CURRENT_FILE" \
-                -filter_complex "$FILTER" \
+                -f s16le -ac $CHANNELS -ar $RATE_INTERNAL -i "$PREV_TAIL" \
+                -i "$CURRENT_FILE" \
+                -filter_complex "
+                    [0:a]atrim=start=${TAIL_SKIP}:end=${TAIL_TRIM_END},asetpts=PTS-STARTPTS,afade=t=out:st=0:d=${OVERLAP}[old];
+                    [1:a]asplit=2[new_mix][new_body];
+                    [new_mix]atrim=end=${OVERLAP},asetpts=PTS-STARTPTS,afade=t=in:st=0:d=${OVERLAP}[new];
+                    [old][new]amix=inputs=2:duration=first:normalize=0[mix];
+                    [new_body]atrim=start=${OVERLAP}:end=${TAIL_START},asetpts=PTS-STARTPTS[body];
+                    [mix][body]concat=n=2:v=0:a=1[out]
+                " \
                 -map "[out]" \
                 -f s16le -ac $CHANNELS -ar $RATE_INTERNAL - 2>/dev/null
-
-            # 3) BODY: Rest des neuen Tracks (nach Overlap bis vor Tail)
-            local BODY_DURATION
-            BODY_DURATION=$(echo "$TAIL_START - $OVERLAP" | bc -l)
-            if [ "$(echo "$BODY_DURATION > 0" | bc -l)" -eq 1 ]; then
-                ffmpeg -v error \
-                    -ss "$OVERLAP" -i "$CURRENT_FILE" \
-                    -t "$BODY_DURATION" \
-                    -af "$FILT_SILENCE" \
-                    -f s16le -ac $CHANNELS -ar $RATE_INTERNAL - 2>/dev/null
-            fi
         fi
 
-        # --- Neuen Tail speichern ---
-        # KEIN silenceremove! Tail muss exakt TAIL_LEN Sekunden lang sein.
-        elog "Tail speichern: $(basename "$TAIL_FILE") (${TAIL_LEN}s ab $(printf '%.1f' "$TAIL_START")s)"
+        # ── SCHRITT 3: Tail speichern ──
+        # WICHTIG: -t begrenzt auf exakt TAIL_LEN Sekunden!
+        # Ohne -t würde bei Silence Detection (TAIL_START < DUR - TAIL_LEN)
+        # der Tail bis zum echten Dateiende gehen → zu lang → alle
+        # folgenden Berechnungen (SOLO/MIX) wären falsch.
         ffmpeg -v error \
-            -ss "$TAIL_START" -i "$CURRENT_FILE" \
+            -ss "$TAIL_START" -t "$TAIL_LEN" -i "$CURRENT_FILE" \
             -f s16le -ac $CHANNELS -ar $RATE_INTERNAL "$TAIL_FILE" 2>/dev/null
 
         if [ -f "$TAIL_FILE" ]; then
             local TAIL_BYTES
             TAIL_BYTES=$(stat -c%s "$TAIL_FILE" 2>/dev/null || echo "0")
             local TAIL_SECS
-            TAIL_SECS=$(echo "scale=1; $TAIL_BYTES / ($RATE_INTERNAL * $CHANNELS * 2)" | bc -l)
-            elog "Tail OK: ${TAIL_SECS}s ($(( TAIL_BYTES / 1024 ))kB)"
+            TAIL_SECS=$(echo "scale=1; $TAIL_BYTES / $BPS" | bc -l)
+            elog "Tail: ${TAIL_SECS}s ($(( TAIL_BYTES / 1024 ))kB) → $(basename "$TAIL_FILE")"
         else
             eerr "Tail-Datei nicht erstellt!"
         fi
@@ -525,7 +606,7 @@ start_rds() {
                 echo "PS TEST" > "$FIFO_MPX_CTL"; sleep 4
                 echo "PS TEST" > "$FIFO_MPX_CTL"; sleep 10
                 echo "PS E-Mail" > "$FIFO_MPX_CTL"; sleep 4
-                echo "PS radio@" > "$FIFO_MPX_CTL"; sleep 4
+                echo "PS studio@" > "$FIFO_MPX_CTL"; sleep 4
                 echo "PS iskra" > "$FIFO_MPX_CTL"; sleep 4
                 echo "PS .com" > "$FIFO_MPX_CTL"; sleep 4
             else
@@ -615,9 +696,11 @@ build_filter_chain() {
     local FC=""
 
     if [ "$SOUND_PROCESSING" = "yes" ]; then
-        # ── VOLLE PROCESSING CHAIN ──
-        # EQ
-        FC+="highpass=f=35:poles=2,"
+
+    # --- Broadcast Processing Chain - Optimized for "Smooth & Loud" ---
+
+    # --- EQ SEKTION ---
+        FC="highpass=f=35:poles=2,"
         FC+="equalizer=f=60:width_type=o:width=1.0:g=3,"
         FC+="equalizer=f=120:width_type=o:width=0.8:g=-1,"
         FC+="equalizer=f=400:width_type=o:width=0.7:g=-2,"
@@ -626,25 +709,29 @@ build_filter_chain() {
         FC+="equalizer=f=3500:width_type=o:width=0.7:g=2,"
         FC+="equalizer=f=6000:width_type=o:width=0.8:g=1,"
         FC+="equalizer=f=10000:width_type=o:width=1.0:g=1.5,"
-        FC+="lowpass=f=15000:poles=2,"
-        # Klangveredelung
-        FC+="crystalizer=i=1.2,"
-        FC+="stereowiden=delay=8:feedback=0.1:crossfeed=0.1:drymix=0.95,"
-        # Dynamik
-        FC+="acompressor=threshold=-18dB:ratio=2.5:attack=15:release=150:makeup=1dB:knee=10dB,"
-        FC+="dynaudnorm=f=40:g=5:p=0.6:m=10:r=0.9:s=0,"
-        FC+="alimiter=limit=-0.5dB:level_in=1:level_out=1:attack=5:release=50:asc=1,"
+        # KEIN Lowpass hier — kommt NUR auf mpxgen (FM-Pilotton-Schutz)
+
+    # --- KLANGVEREDELUNG ---
+        FC+="crystalizer=i=1.0,"
+        FC+="stereowiden=delay=8:feedback=0.1:crossfeed=0.1:drymix=0.9,"
+
+    # --- DYNAMIK ---
+        FC+="acompressor=threshold=-18dB:ratio=3:attack=25:release=400:makeup=2dB:knee=8,"
+        FC+="dynaudnorm=f=200:g=31:p=0.9:m=6:r=0.9:s=0,"
+        FC+="alimiter=limit=-0.5dB:level_in=1:level_out=1:attack=7:release=50:asc=1,"
+
     fi
     # Ab hier: IMMER aktiv (Pegel + Resample/Split)
+    # Lowpass 15kHz NUR auf mpxgen (FM-Pilotton bei 19kHz)
 
     if [ "$STREAM_TO_SERVER" = "yes" ]; then
-        # MIT Icecast: Split
+        # MIT Icecast: Split → Icecast (ohne Lowpass) + mpxgen (mit Lowpass)
         FC+="asplit=2[ice_pre][loop_pre];"
         FC+="[ice_pre]volume=${VOL_ICECAST}dB[ice];"
-        FC+="[loop_pre]volume=${VOL_MPXGEN}dB,aresample=$RATE_OUTPUT[out_loop]"
+        FC+="[loop_pre]lowpass=f=15000:poles=2,volume=${VOL_MPXGEN}dB,aresample=$RATE_OUTPUT[out_loop]"
     else
-        # OHNE Icecast: Nur mpxgen
-        FC+="volume=${VOL_MPXGEN}dB,aresample=$RATE_OUTPUT"
+        # OHNE Icecast: Nur mpxgen (mit Lowpass)
+        FC+="lowpass=f=15000:poles=2,volume=${VOL_MPXGEN}dB,aresample=$RATE_OUTPUT"
     fi
 
     echo "$FC"
@@ -765,6 +852,7 @@ log "  PI:  $STATIC_PI | PTY: $STATIC_PTY"
 log "MPX-Level:     $MPX_LEVEL"
 log "Jingle alle:   $(if [ "$JINGLE_INTERVAL" -gt 0 ]; then echo "$JINGLE_INTERVAL Songs"; else echo "deaktiviert"; fi)"
 log "Crossfade:     S↔S=${OV_STANDARD}s S→J=${OV_TO_JINGLE}s J→S=${OV_FROM_JINGLE}s"
+log "Silence-Det:   $(if [ "$SILENCE_DETECT" = "yes" ]; then echo "AN (${SILENCE_THRESHOLD}dB, ${SILENCE_DURATION}s)"; else echo "AUS"; fi)"
 log "Pegel:         Icecast=${VOL_ICECAST}dB mpxgen=${VOL_MPXGEN}dB"
 log "Hotkey:        [x] = Neustart"
 log "============================================"
