@@ -1,0 +1,19 @@
+pcm.mpxmix {
+    type plug
+    slave.pcm {
+        type dmix
+        ipc_key 555555        # Eindeutige ID für den Shared Memory
+        ipc_perm 0666         # Jeder darf Audio senden
+        slave {
+            pcm "hw:audiocodec"
+            rate 192000       # Zwingend für RDS
+            period_size 4096  # Nötig für Armbian-Stabilität
+            buffer_size 16384 # Nötig für Armbian-Stabilität
+        }
+    }
+}
+
+ctl.mpxmix {
+    type hw
+    card audiocodec
+}
