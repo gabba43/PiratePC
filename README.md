@@ -14,8 +14,10 @@ CLI only - running in a Tmux terminal via SSH or locally.
     “soundcard”           = Capture sound card only (ALSA)  
     “soundcard+fallback”  = Capture sound card (ALSA) + FFmpeg fallback  
 
-- Custom fallback audio player using ONLY FFmpeg: Automatic creation of playlists using a specified folder containing audio files AND/OR .m3u/.m3u8 files, streaming the signal to an Icecast server
-- Playback of jingles in a separate folder every X songs with a shorter, customizable crossfade
+- Custom fallback audio player using ONLY FFmpeg: Automatic creation of randomized playlists using a specified folder containing audio files AND/OR .m3u/.m3u8 files, streaming the signal to an Icecast server
+- Song history: No repetitions unless all songs have been played
+- Playback of jingles in a separate folder every X songs
+- Customizable crossfade for both jingles and songs + gap killer
 - Separate volume settings for stream and MPX
 - Basic sound processing with all standard features which can adjusted or disabled (EQ, crystallizer, stereo widening, compressor, AGC, limiter)
 - Streaming to an Icecast server (can be disabled)
