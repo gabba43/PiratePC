@@ -1,6 +1,8 @@
 # PiratePC
 A fully automated stream/music player, sound processor, web stream & MPX generator for radio purposes - using ONLY FFmpeg and mpxgen.
 
+I'll soon add an installation script that does all the work below automatically on Debian/Ubuntu based systems.
+
  Features:
 - Tmux terminal that runs in the background so that the SSH connection can be closed (reconnecting to the terminal possible)
 - Restart the script/try to reconnect to the web stream by pressing "x"
@@ -23,21 +25,22 @@ A fully automated stream/music player, sound processor, web stream & MPX generat
 - using a custom ALSA plug called "mpxmix" instead of streaming directly to the sound card, if desired
 - full logging
 
-And all this on a hacked €25 TV box (T25MAX) running Armbian (Debian) flashed to it's eMMC.
+I'm running all of this on a hacked €25 TV box (T25MAX, 4gb RAM, 32gb eMMC, H618 CPU - 4x1.4GHz Cortex A53, average CPU load 30-40%) running Armbian Desktop (Debian) flashed to it's eMMC (not logged in, only SSH which is closed after starting the script/tmux terminal).
 
 
 
 
 # IMPORTANT
 
-Before running and installing anything, install the necessary dependencies by running the following command:
+###Dependencies
+Before compiling, building or running anything, install the necessary dependencies by running the following command (Debian/Ubuntu based systems):
 
 ```bash
 sudo apt update
-sudo apt install ffmpeg libsndfile1-dev libasound2-dev libsamplerate0-dev libao-dev mpv mpd tmux
+sudo apt install ffmpeg libsndfile1-dev libasound2-dev libsamplerate0-dev libao-dev tmux
 ```
 
-Building & compiling mpxgen (commit 397e81e for audio input to work)
+###Building & compiling mpxgen (commit 397e81e for audio input to work)
 
 ```bash
 git clone https://github.com/Anthony96922/mpxgen
@@ -79,10 +82,21 @@ make
 The `clearerr()` resets the error flag so that the next `fgets()` call actually reads from the kernel pipe buffer again. A one-liner fix for a persistent problem. After that, **both** the `exec 3>` approach **and** the simpler `echo > pipe` work because mpxgen clears the error state after each failed read and reads correctly again on the next pass (10 ms later).
 
 
-Adding .libao and .asoundrc to your home folder
+###Adding .libao and .asoundrc to your home folder
 
-To make mpxgen work, add the libao & asoundrc to your home folder. Also, add a "." in front of their file names to change visibility and make the system recognize them. Additionally, you need to specifiy the name of your sound card in the .asoundrc using either the format "hw:1,0" OR it's specific name which can be obtained by running:
+To make mpxgen work, add the libao & asoundrc to your home folder. Also, add a "." in front of their file names to change visibility and make the system recognize them. Additionally, you need to specifiy the name of your sound card in the .asoundrc using either the format "hw:1,0" OR it's specific name, e.g. "hw:audiocodec", which can be obtained by running:
 ```bash
 aplay -l
 ```
-In this case, mpxgen uses an ALSA plug device called "mpxmix". If you wish to directly write to your 192kHz sound card, change the .libao-file to the name of your sound card. You can obtain the correct name by running the command above.
+In this case, mpxgen uses an ALSA plug device called "mpxmix". If you wish to directly write to your 192kHz sound card, change the .libao-file to the name of your sound card. Here you DO NOT add "hw:" in front of your soundcard's name. JUST the name, e.g.
+```bash
+default_driver=alsa
+dev=mpxmix
+```
+You can obtain the correct name by running the command above.
+
+
+
+
+#PROFIT!
+If you encounter any bugs, drop me a message. Thanks.
