@@ -28,6 +28,7 @@ CLI only - running in a Tmux terminal via SSH or locally.
 
 I'm running all of this on a hacked €25 TV box (T25MAX, 4gb RAM, 32gb eMMC, H618 CPU - 4x1.4GHz Cortex A53, average CPU load 30-40%) running Armbian Desktop (Debian) flashed to it's eMMC (not logged in to the desktop environment, only SSH which is closed after starting the script/tmux terminal).
 
+**Flashing Armbian on the TV box: https://forum.armbian.com/topic/49270-tx95-max-allwinner-h618-quadcore-cortex-a53/ Use an external wifi dongle like the 600M Wireless USB Adapter, internal wifi drivers don't work.**
 
 
 
