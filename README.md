@@ -20,7 +20,7 @@ For a more sophisticated sound processing, check this project or use LADSPA plug
 - Playback of jingles in a separate folder every X songs
 - Customizable crossfade for both jingles and songs + gap killer
 - Separate volume settings for stream and MPX
-- Basic sound processing with all standard features which can adjusted or disabled (EQ, crystallizer, stereo widening, compressor, AGC, limiter)
+- Basic sound processing with all standard features which can adjusted or disabled (EQ, crystallizer, stereo widening, improvised multiband compressor, AGC, limiter)
 - Streaming to an Icecast server (can be disabled)
 - 192kHz VBR MP3 & OGG as streaming formats (can be adjusted)
 - MPX generation
