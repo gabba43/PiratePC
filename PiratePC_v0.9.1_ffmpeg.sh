@@ -136,7 +136,7 @@ MPX_LEVEL=50
 # Beispiel: 3 = Nach jedem 3. Song wird ein Jingle eingespielt.
 # Auf 0 setzen um Jingles komplett zu deaktivieren.
 # ==============================================================================
-JINGLE_INTERVAL=3
+JINGLE_INTERVAL=1
 
 # ==============================================================================
 # CROSSFADE / OVERLAP (in Sekunden)
@@ -697,7 +697,15 @@ build_filter_chain() {
 
     if [ "$SOUND_PROCESSING" = "yes" ]; then
 
-    # --- Broadcast Processing Chain - Optimized for "Smooth & Loud" ---
+    # ==========================================================================
+    # Broadcast Processing Chain mit Multiband-Kompressor
+    # ==========================================================================
+    # Signalfluss:
+    #   Input → EQ → Klangveredelung → [pre]
+    #         → acrossover (3 Bänder) → compand je Band → amix
+    #         → DynAudNorm → Limiter → [proc]
+    #         → Split (Icecast + mpxgen) oder nur mpxgen
+    # ==========================================================================
 
     # --- EQ SEKTION ---
         FC="highpass=f=35:poles=2,"
@@ -709,29 +717,55 @@ build_filter_chain() {
         FC+="equalizer=f=3500:width_type=o:width=0.7:g=2,"
         FC+="equalizer=f=6000:width_type=o:width=0.8:g=1,"
         FC+="equalizer=f=10000:width_type=o:width=1.0:g=1.5,"
-        # KEIN Lowpass hier — kommt NUR auf mpxgen (FM-Pilotton-Schutz)
 
     # --- KLANGVEREDELUNG ---
         FC+="crystalizer=i=1.0,"
-        FC+="stereowiden=delay=8:feedback=0.1:crossfeed=0.1:drymix=0.9,"
+        FC+="stereowiden=delay=8:feedback=0.1:crossfeed=0.1:drymix=0.9"
+        FC+=" [pre];"
 
-    # --- DYNAMIK ---
-        FC+="acompressor=threshold=-18dB:ratio=3:attack=25:release=400:makeup=2dB:knee=8,"
+    # --- MULTIBAND KOMPRESSOR (4-Band via acrossover) ---
+    # Perfekt abgestimmt auf die EQ-Kurve für "fetten", pumpfreien Broadcast-Sound.
+    #
+    # Band 1: Bass (0-150Hz)       -> Fängt den 60Hz Boost auf. Langsam (300ms Release), damit der Bass nicht zerrt.
+    # Band 2: Tiefmitten (150-1k)  -> Der "Körper" (Korrekturen bei 400Hz/800Hz). Mittleres Tempo.
+    # Band 3: Hochmitten (1k-5k)   -> Vocals/Präsenz (Boosts bei 2k/3.5k). Schneller, hält Stimmen konstant vorn.
+    # Band 4: Höhen (5000Hz+)      -> Wirkt als De-Esser für die 6k/10k Boosts. Sehr schnell, Threshold niedriger.
+        FC+="[pre]acrossover=split='150 1000 5000':order=8th [b1][b2][b3][b4];"
+        # Band 1: Ratio ~2.2:1 (Schwelle bei -18dB)
+        FC+="[b1]compand=attacks=0.015:decays=0.300:points=-90/-90|-18/-18|0/-10:gain=0 [c1];"
+        # Band 2: Ratio 2:1 (Schwelle bei -20dB)
+        FC+="[b2]compand=attacks=0.008:decays=0.150:points=-90/-90|-20/-20|0/-10:gain=0 [c2];"
+        # Band 3: Ratio ~2:1 (Schwelle bei -22dB, fängt scharfe Vocals früher ab)
+        FC+="[b3]compand=attacks=0.004:decays=0.080:points=-90/-90|-22/-22|0/-11:gain=0 [c3];"
+        # Band 4: Ratio ~2.4:1 (Schwelle bei -24dB, fängt Zischen extrem schnell ab)
+        FC+="[b4]compand=attacks=0.001:decays=0.040:points=-90/-90|-24/-24|0/-14:gain=0 [c4];"
+        # Zusammenführung der 4 Bänder
+        FC+="[c1][c2][c3][c4]amix=inputs=4:normalize=0,"
+
+    # --- DYNAMIK (nach Multiband) ---
+    #   FC+="acompressor=threshold=-18dB:ratio=3:attack=25:release=400:makeup=2dB:knee=8,"
         FC+="dynaudnorm=f=200:g=31:p=0.9:m=6:r=0.9:s=0,"
-        FC+="alimiter=limit=-0.5dB:level_in=1:level_out=1:attack=7:release=50:asc=1,"
+        FC+="alimiter=limit=-0.5dB:level_in=1:level_out=1:attack=7:release=50:asc=1"
 
-    fi
-    # Ab hier: IMMER aktiv (Pegel + Resample/Split)
+    # --- SPLIT / OUTPUT ---
     # Lowpass 15kHz NUR auf mpxgen (FM-Pilotton bei 19kHz)
+        if [ "$STREAM_TO_SERVER" = "yes" ]; then
+            FC+=",asplit=2[ice_pre][loop_pre];"
+            FC+="[ice_pre]volume=${VOL_ICECAST}dB[ice];"
+            FC+="[loop_pre]lowpass=f=15000:poles=2,volume=${VOL_MPXGEN}dB,aresample=$RATE_OUTPUT[out_loop]"
+        else
+            FC+=",lowpass=f=15000:poles=2,volume=${VOL_MPXGEN}dB,aresample=$RATE_OUTPUT[out_loop]"
+        fi
 
-    if [ "$STREAM_TO_SERVER" = "yes" ]; then
-        # MIT Icecast: Split → Icecast (ohne Lowpass) + mpxgen (mit Lowpass)
-        FC+="asplit=2[ice_pre][loop_pre];"
-        FC+="[ice_pre]volume=${VOL_ICECAST}dB[ice];"
-        FC+="[loop_pre]lowpass=f=15000:poles=2,volume=${VOL_MPXGEN}dB,aresample=$RATE_OUTPUT[out_loop]"
     else
-        # OHNE Icecast: Nur mpxgen (mit Lowpass)
-        FC+="lowpass=f=15000:poles=2,volume=${VOL_MPXGEN}dB,aresample=$RATE_OUTPUT"
+        # ==== SOUND_PROCESSING=no: Nur Pegel + Resample ====
+        if [ "$STREAM_TO_SERVER" = "yes" ]; then
+            FC="asplit=2[ice_pre][loop_pre];"
+            FC+="[ice_pre]volume=${VOL_ICECAST}dB[ice];"
+            FC+="[loop_pre]lowpass=f=15000:poles=2,volume=${VOL_MPXGEN}dB,aresample=$RATE_OUTPUT[out_loop]"
+        else
+            FC="lowpass=f=15000:poles=2,volume=${VOL_MPXGEN}dB,aresample=$RATE_OUTPUT"
+        fi
     fi
 
     echo "$FC"
@@ -767,18 +801,36 @@ start_processing_pipeline() {
             --pty "$STATIC_PTY" \
             --rt "$STATIC_RT") &
     else
-        ffmpeg -hide_banner -loglevel warning -stats \
-            $INPUT_ARGS \
-            -af "$FILTER_CHAIN" \
-            -f au - \
-        | (cd "$MPXGEN_DIR" && "$MPXGEN_BIN" \
-            --audio - \
-            --mpx "$MPX_LEVEL" \
-            --ctl "$FIFO_MPX_CTL" \
-            --pi "$STATIC_PI" \
-            --ps "$STATIC_PS" \
-            --pty "$STATIC_PTY" \
-            --rt "$STATIC_RT") &
+        # OHNE Icecast
+        if [ "$SOUND_PROCESSING" = "yes" ]; then
+            # Multiband braucht filter_complex (acrossover → named streams)
+            ffmpeg -hide_banner -loglevel warning -stats \
+                $INPUT_ARGS \
+                -filter_complex "$FILTER_CHAIN" \
+                -map "[out_loop]" -f au - \
+            | (cd "$MPXGEN_DIR" && "$MPXGEN_BIN" \
+                --audio - \
+                --mpx "$MPX_LEVEL" \
+                --ctl "$FIFO_MPX_CTL" \
+                --pi "$STATIC_PI" \
+                --ps "$STATIC_PS" \
+                --pty "$STATIC_PTY" \
+                --rt "$STATIC_RT") &
+        else
+            # Kein Processing → einfache lineare Chain, -af reicht
+            ffmpeg -hide_banner -loglevel warning -stats \
+                $INPUT_ARGS \
+                -af "$FILTER_CHAIN" \
+                -f au - \
+            | (cd "$MPXGEN_DIR" && "$MPXGEN_BIN" \
+                --audio - \
+                --mpx "$MPX_LEVEL" \
+                --ctl "$FIFO_MPX_CTL" \
+                --pi "$STATIC_PI" \
+                --ps "$STATIC_PS" \
+                --pty "$STATIC_PTY" \
+                --rt "$STATIC_RT") &
+        fi
     fi
 
     PIPELINE_PID=$!
