@@ -215,9 +215,8 @@ kill_all() {
         [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null
     done
     killall -9 mpxgen ffmpeg 2>/dev/null
-    # Gehaltene File-Deskriptoren schliessen
+    # Gehaltenen File-Deskriptor schliessen
     exec 3>&- 2>/dev/null
-    exec 4>&- 2>/dev/null
     rm -f "$FIFO_MPX_CTL" "$FIFO_RADIO" "$FIFO_MPX_AUDIO"
 }
 
@@ -949,11 +948,10 @@ while true; do
             # Persistenten mpxgen starten
             start_mpxgen
 
-            # Gehaltene File-Deskriptoren:
+            # Gehaltener File-Deskriptor:
             # fd 3 auf FIFO_MPX_AUDIO -> mpxgen bekommt nie EOF
-            # fd 4 auf FIFO_RADIO -> Processing-Pipeline bekommt nie EOF
+            sleep 0.5
             exec 3>"$FIFO_MPX_AUDIO"
-            exec 4>"$FIFO_RADIO"
 
             while true; do
                 # Prüfe ob mpxgen noch lebt
@@ -1000,8 +998,8 @@ while true; do
             log "=== Auto-Modus mit persistentem mpxgen ==="
 
             start_mpxgen
+            sleep 0.5
             exec 3>"$FIFO_MPX_AUDIO"
-            exec 4>"$FIFO_RADIO"
 
             while true; do
                 # Radio-Engine prüfen/starten
@@ -1030,6 +1028,7 @@ while true; do
             log "=== Soundcard-Modus mit persistentem mpxgen ==="
 
             start_mpxgen
+            sleep 0.5
             exec 3>"$FIFO_MPX_AUDIO"
 
             while true; do
@@ -1057,8 +1056,8 @@ while true; do
             log "=== Soundcard+Fallback-Modus mit persistentem mpxgen ==="
 
             start_mpxgen
+            sleep 0.5
             exec 3>"$FIFO_MPX_AUDIO"
-            exec 4>"$FIFO_RADIO"
 
             while true; do
                 if check_soundcard; then
