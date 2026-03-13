@@ -107,14 +107,14 @@ ALSA_RATE=48000
 ALSA_CHANNELS=2
 
 # Webstream URL (nur bei INPUT_MODE "webstream")
-STREAM_URL="http://192.168.111.11:8000/stream"
+STREAM_URL="http://91.229.239.78:8000/radio-streaming"
 
 # ==============================================================================
 # RDS KONFIGURATION
 # ==============================================================================
-STATIC_RT="E-Mails to studio@iskra.com"
-STATIC_PS="ISKRA"
-STATIC_PI="FFFF"
+STATIC_RT="E-Mails und Musikwuensche an studio@radiobm.de"
+STATIC_PS="RBM"
+STATIC_PI="161F"
 STATIC_PTY="10"
 
 # ==============================================================================
@@ -136,7 +136,7 @@ MPX_LEVEL=50
 # Beispiel: 3 = Nach jedem 3. Song wird ein Jingle eingespielt.
 # Auf 0 setzen um Jingles komplett zu deaktivieren.
 # ==============================================================================
-JINGLE_INTERVAL=1
+JINGLE_INTERVAL=3
 
 # ==============================================================================
 # CROSSFADE / OVERLAP (in Sekunden)
@@ -157,9 +157,9 @@ SILENCE_DURATION=1.0      # Sekunden — wie lang muss Stille sein
 
 # Icecast URL
 if [ "$STREAM_FORMAT" = "ogg" ]; then
-    ICE_URL="icecast://source:PASSWORD@SERVER:8000/stream"
+    ICE_URL="icecast://source:NYucUHz_d5oM@91.229.239.78:8000/radio-streaming"
 else
-    ICE_URL="icecast://source:PASSWORD@SERVER:8000/stream"
+    ICE_URL="icecast://source:NYucUHz_d5oM@91.229.239.78:8000/radio-streaming"
 fi
 
 # Audio Settings
@@ -602,13 +602,13 @@ start_rds() {
         while true; do
             if [ -p "$FIFO_MPX_CTL" ]; then
                 echo "PS RADIO" > "$FIFO_MPX_CTL"; sleep 4
-                echo "PS ISKRA" > "$FIFO_MPX_CTL"; sleep 4
-                echo "PS TEST" > "$FIFO_MPX_CTL"; sleep 4
-                echo "PS TEST" > "$FIFO_MPX_CTL"; sleep 10
+                echo "PS BLACK" > "$FIFO_MPX_CTL"; sleep 4
+                echo "PS MOUNTAIN" > "$FIFO_MPX_CTL"; sleep 4
+                echo "PS RBM" > "$FIFO_MPX_CTL"; sleep 10
                 echo "PS E-Mail" > "$FIFO_MPX_CTL"; sleep 4
                 echo "PS studio@" > "$FIFO_MPX_CTL"; sleep 4
-                echo "PS iskra" > "$FIFO_MPX_CTL"; sleep 4
-                echo "PS .com" > "$FIFO_MPX_CTL"; sleep 4
+                echo "PS radiobm" > "$FIFO_MPX_CTL"; sleep 4
+                echo "PS .de" > "$FIFO_MPX_CTL"; sleep 4
             else
                 sleep 1
             fi
