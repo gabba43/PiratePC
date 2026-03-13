@@ -797,19 +797,19 @@ start_processing_pipeline() {
             ICE_CODEC="-c:a libmp3lame -b:a 192k -content_type audio/mpeg -f mp3"
         fi
 
-        ffmpeg -hide_banner -loglevel warning -stats \
+        ffmpeg -y -hide_banner -loglevel warning -stats \
             $INPUT_ARGS \
             -filter_complex "$FILTER_CHAIN" \
             -map "[ice]" $ICE_CODEC "$ICE_URL" \
             -map "[out_loop]" -f au "$FIFO_MPX_AUDIO" &
     else
         if [ "$SOUND_PROCESSING" = "yes" ]; then
-            ffmpeg -hide_banner -loglevel warning -stats \
+            ffmpeg -y -hide_banner -loglevel warning -stats \
                 $INPUT_ARGS \
                 -filter_complex "$FILTER_CHAIN" \
                 -map "[out_loop]" -f au "$FIFO_MPX_AUDIO" &
         else
-            ffmpeg -hide_banner -loglevel warning -stats \
+            ffmpeg -y -hide_banner -loglevel warning -stats \
                 $INPUT_ARGS \
                 -af "$FILTER_CHAIN" \
                 -f au "$FIFO_MPX_AUDIO" &
@@ -853,7 +853,7 @@ kill_feeder() {
 
 start_webstream_feeder() {
     log "Starte Webstream-Feeder..."
-    ffmpeg -v error \
+    ffmpeg -y -v error \
         -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
         -i "$STREAM_URL" \
         -af "lowpass=f=15000:poles=2,volume=${VOL_MPXGEN}dB,aresample=$RATE_OUTPUT" \
